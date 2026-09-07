@@ -33,10 +33,14 @@
 | **EntityLimiter**      |   🔴 **HIGH**    | Restricts the number of entities per chunk. Prevents excessive entity accumulation.                                  |
 | **LagShield**          |   🔴 **HIGH**    | Monitors server load and dynamically adjusts settings during latency spikes.                                         |
 | **ExplosionOptimizer** |   🔴 **HIGH**    | Limits explosion power and chain reactions (TNT, creepers, End Crystals).                                            |
+| **WorldCleaner**       |   🔴 **HIGH**    | Periodically removes old ground items, qualifying creatures, and projectiles. Includes `/abyss` to retrieve items.  |
+| **AFKOptimizer**       |  🟡 **MEDIUM**   | Detects AFK players and reduces the server load they generate by hiding entities, throttling packets, or kicking.   |
 | **ItemsCleaner**       |  🟡 **MEDIUM**   | Cleans up old items on the ground. Includes `/abyss` command for players to retrieve lost items.                     |
 | **RedstoneLimiter**    |  🟡 **MEDIUM**   | Disables demanding Redstone clocks to prevent server overload and crashes.                                           |
 | **VehicleMotion**      |  🟡 **MEDIUM**   | Optimizes boats and minecarts. Automatically removes chest minecarts spawned in mineshafts.                          |
 | **AbilityLimiter**     |  🟡 **MEDIUM**   | Limits rapid Trident and Elytra usage to prevent excessive, fast-paced chunk loading.                                |
+| **HopperOptimizer**    |  🟡 **MEDIUM**   | Throttles hopper transfers and caps hoppers per chunk to reduce item-transport overhead.                             |
+| **InstantLeafDecay**   |  🟢 **LOW**      | Makes leaves decay instantly when broken, instead of slowly over time.                                               |
 | **ConsoleFilter**      |  🟢 **VISUAL**   | Filters console messages based on predefined rules. Enhances log clarity and reduces console clutter.                |
 
 ## 🛠️ Features & Integration
