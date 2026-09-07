@@ -90,17 +90,19 @@ public class LagShieldModule extends AbstractModule implements Runnable, Listene
         this.explosions = tps < this.explosions_tps;
         this.fireworks = tps < this.fireworks_tps;
 
-        if (this.mobAi) {
+        // Entity-AI mutation must NOT run on the global tick thread: on Folia an entity may only be
+        // touched on the region thread that owns it. Re-dispatch the entire enumeration + AI loop to
+        // each allowed world's owning region thread (pinned at the world's spawn location). The
+        // flag computation above stays global because it touches no entity state.
+        if (this.mobAi || oldMobAi) {
+            boolean enable = !this.mobAi; // mobAi true -> disable AI; mobAi flipped back -> re-enable
             for (World w : this.getAllowedWorlds()) {
-                for (LivingEntity le : w.getLivingEntities()) {
-                    nms.setEntityAi(le, false);
-                }
-            }
-        } else if (oldMobAi) {
-            for (World w : this.getAllowedWorlds()) {
-                for (LivingEntity le : w.getLivingEntities()) {
-                    nms.setEntityAi(le, true);
-                }
+                Location spawn = w.getSpawnLocation();
+                support.getFork().runNow(false, spawn, () -> {
+                    for (LivingEntity le : w.getLivingEntities()) {
+                        nms.setEntityAi(le, enable);
+                    }
+                });
             }
         }
 

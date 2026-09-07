@@ -7,6 +7,7 @@ import net.kyori.adventure.sound.Sound;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import org.bukkit.Bukkit;
+import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.command.Command;
@@ -35,7 +36,14 @@ import xyz.lychee.lagfixer.utils.MessageUtils;
 import xyz.lychee.lagfixer.utils.ReflectionUtils;
 
 import java.io.IOException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.EnumSet;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 
 @Getter
@@ -43,7 +51,7 @@ public class WorldCleanerModule extends AbstractModule implements Listener, Comm
     private final List<ItemStack> items = Collections.synchronizedList(new ArrayList<>());
     private final EnumSet<EntityType> creatures_list = EnumSet.noneOf(EntityType.class);
     private final EnumSet<EntityType> projectiles_list = EnumSet.noneOf(EntityType.class);
-    private final ArrayList<Inventory> inventories = new ArrayList<>();
+    private final CopyOnWriteArrayList<Inventory> inventories = new CopyOnWriteArrayList<>();
     private final EnumSet<Material> items_abyss_blacklist = EnumSet.noneOf(Material.class);
     private final ItemStack items_abyss_previous;
     private final ItemStack items_abyss_next;
@@ -177,100 +185,148 @@ public class WorldCleanerModule extends AbstractModule implements Listener, Comm
 
     @Override
     public void run() {
-        if (Bukkit.getOnlinePlayers().isEmpty()) {
+        // Global tick thread: this is a DISPATCHER only. It must not touch any
+        // entity, player, inventory, or block state directly. Bukkit.getWorlds()
+        // is acceptable here as a cross-world global snapshot.
+        if (Bukkit.getWorlds().isEmpty()) {
             this.second = this.interval + 1;
             return;
         }
 
         if (--this.second <= 0) {
-            HookManager.StackerContainer stacker = HookManager.getInstance().getStackerHook();
-
-            int creatures = 0, items = 0, projectiles = 0;
-
+            // Dispatch the entity-removal work to each allowed world's region thread.
+            // getAllowedWorlds() iterates Bukkit.getWorlds() — a global op, legal here.
+            // The per-world task decides whether to actually process the world.
             for (World world : this.getAllowedWorlds()) {
-                if (world.getPlayers().isEmpty()) continue;
+                // Use the world's spawn location as the region key: it is always
+                // loaded and belongs to the region thread that owns this world.
+                Location regionKey = world.getSpawnLocation();
+                SupportManager.getInstance().getFork().runNow(false, regionKey, () -> {
+                    this.cleanupWorld(world);
+                });
+            }
+            this.second = this.interval + 1;
+        } else if (this.alerts_enabled && this.messages.containsKey(this.second)) {
+            // Countdown alerts use the global WorldsMonitor snapshot, which is the
+            // existing behavior and safe to read on the global thread.
+            WorldsMonitor worldsMonitor = SupportManager.getInstance().getWorldsMonitor();
+            this.sendAlert(
+                    Language.createComponent(this.messages.get(this.second), true,
+                            Placeholder.unparsed("remaining", Integer.toString(this.second)),
+                            Placeholder.unparsed("items", Long.toString(worldsMonitor.getItems())),
+                            Placeholder.unparsed("creatures", Long.toString(worldsMonitor.getCreatures())),
+                            Placeholder.unparsed("projectiles", Long.toString(worldsMonitor.getProjectiles()))
+                    )
+            );
+        }
+    }
 
-                for (Entity ent : world.getEntities()) {
-                    if (ent instanceof LivingEntity livingEntity) {
-                        if (this.creatures_enabled && this.clearCreature(livingEntity)) {
-                            if (this.creatures_dropitems) {
-                                livingEntity.damage(Double.MAX_VALUE);
-                            }
-                            ent.remove();
-                            creatures++;
-                        }
-                    } else if (ent instanceof Item item) {
-                        if (this.items_enabled && this.clearItem(item)) {
-                            if (this.items_abyss_enabled
-                                    && !this.items_abyss_blacklist.contains(item.getItemStack().getType())
-                                    && item.getLocation().getY() > -64) {
-                                if (stacker != null) {
-                                    stacker.addItemsToList(item, this.items);
-                                } else {
-                                    this.items.add(item.getItemStack().clone());
-                                }
-                            }
-                            ent.remove();
-                            items += item.getItemStack().getAmount();
-                        }
-                    } else if (ent instanceof Projectile projectile) {
-                        if (this.projectiles_enabled && this.clearProjectile(projectile)) {
-                            ent.remove();
-                            projectiles++;
+    /**
+     * Runs on a region thread (dispatched via runNow(false, world.getSpawnLocation(), ...)).
+     * All entity/player/inventory access here is legal because we are on the owning
+     * region thread for {@code world}.
+     */
+    private void cleanupWorld(World world) {
+        // We are on the region thread for this world. Skip worlds with no players
+        // (entity op that would be wasted work) — this replaces the old global-thread
+        // Bukkit.getOnlinePlayers() gate.
+        if (world.getPlayers().isEmpty()) return;
+
+        HookManager.StackerContainer stacker = HookManager.getInstance().getStackerHook();
+
+        int creatures = 0, items = 0, projectiles = 0;
+
+        for (Entity ent : world.getEntities()) {
+            if (ent instanceof LivingEntity livingEntity) {
+                if (this.creatures_enabled && this.clearCreature(livingEntity)) {
+                    if (this.creatures_dropitems) {
+                        livingEntity.damage(Double.MAX_VALUE);
+                    }
+                    ent.remove();
+                    creatures++;
+                }
+            } else if (ent instanceof Item item) {
+                if (this.items_enabled && this.clearItem(item)) {
+                    if (this.items_abyss_enabled
+                            && !this.items_abyss_blacklist.contains(item.getItemStack().getType())
+                            && item.getLocation().getY() > -64) {
+                        if (stacker != null) {
+                            stacker.addItemsToList(item, this.items);
+                        } else {
+                            this.items.add(item.getItemStack().clone());
                         }
                     }
+                    ent.remove();
+                    items += item.getItemStack().getAmount();
+                }
+            } else if (ent instanceof Projectile projectile) {
+                if (this.projectiles_enabled && this.clearProjectile(projectile)) {
+                    ent.remove();
+                    projectiles++;
                 }
             }
+        }
 
-            if (this.alerts_enabled) {
-                String message = this.messages.get(this.second);
-                if (message != null) {
-                    this.sendAlert(
-                            Language.createComponent(message, true,
-                                    Placeholder.unparsed("remaining", Integer.toString(this.second)),
-                                    Placeholder.unparsed("items", Integer.toString(items)),
-                                    Placeholder.unparsed("creatures", Integer.toString(creatures)),
-                                    Placeholder.unparsed("projectiles", Integer.toString(projectiles))
-                            )
-                    );
-                }
-
-                if (this.alerts_clear_sound != null) {
-                    this.alerts_audience.playSound(this.alerts_clear_sound);
-                }
+        // Alert with the per-world totals (fired from the region thread). If multiple
+        // worlds clear in the same tick, each emits its own "0" alert and the clear
+        // sound may play more than once — a minor cosmetic trade-off for keeping all
+        // entity work on the correct region thread.
+        if (this.alerts_enabled) {
+            String message = this.messages.get(0);
+            if (message != null) {
+                this.sendAlert(
+                        Language.createComponent(message, true,
+                                Placeholder.unparsed("remaining", "0"),
+                                Placeholder.unparsed("items", Integer.toString(items)),
+                                Placeholder.unparsed("creatures", Integer.toString(creatures)),
+                                Placeholder.unparsed("projectiles", Integer.toString(projectiles))
+                        )
+                );
             }
 
-            if (this.items_abyss_enabled && !this.items.isEmpty()) {
-                String guiName = this.getLanguage().getString("items.abyss.gui.name", true);
-                Collection<ItemStack> toStore = new ArrayList<>(this.items);
-                this.items.clear();
-                int page = 0;
-                while (!toStore.isEmpty()) {
-                    Inventory inv = Bukkit.createInventory(null, 54,
-                            guiName.replace("<page>", Integer.toString(++page))
-                    );
+            if (this.alerts_clear_sound != null) {
+                this.alerts_audience.playSound(this.alerts_clear_sound);
+            }
+        }
 
-                    for (int i = 45; i < 52; i++) {
-                        inv.setItem(i, this.items_abyss_filler);
-                    }
-                    inv.setItem(52, this.items_abyss_previous);
-                    inv.setItem(53, this.items_abyss_next);
+        if (this.items_abyss_enabled && !this.items.isEmpty()) {
+            String guiName = this.getLanguage().getString("items.abyss.gui.name", true);
+            Collection<ItemStack> toStore = new ArrayList<>(this.items);
+            this.items.clear();
+            int page = 0;
+            while (!toStore.isEmpty()) {
+                Inventory inv = Bukkit.createInventory(null, 54,
+                        guiName.replace("<page>", Integer.toString(++page))
+                );
 
-                    toStore = inv.addItem(toStore.toArray(new ItemStack[0])).values();
-
-                    this.inventories.add(inv);
+                for (int i = 45; i < 52; i++) {
+                    inv.setItem(i, this.items_abyss_filler);
                 }
+                inv.setItem(52, this.items_abyss_previous);
+                inv.setItem(53, this.items_abyss_next);
 
-                if (this.inventories.isEmpty()) {
-                    return;
-                }
+                toStore = inv.addItem(toStore.toArray(new ItemStack[0])).values();
 
-                this.items_abyss_opened = true;
-                if (this.items_abyss_alerts) {
-                    this.sendAlert(this.getLanguage().getComponent("items.abyss.open", true));
-                }
+                this.inventories.add(inv);
+            }
 
-                SupportManager.getInstance().getFork().runLater(false, () -> {
+            if (this.inventories.isEmpty()) {
+                return;
+            }
+
+            this.items_abyss_opened = true;
+            if (this.items_abyss_alerts) {
+                this.sendAlert(this.getLanguage().getComponent("items.abyss.open", true));
+            }
+
+            // Auto-close: runLater(false, ...) has no Location overload and would
+            // dispatch to the global thread, where closeInventory()/inv.clear() are
+            // illegal. Schedule the delay on the global thread, then re-dispatch the
+            // entity/inventory work to this world's region thread.
+            Location closeRegionKey = world.getSpawnLocation();
+            long closeDelay = Math.max(this.items_abyss_close, 0);
+            SupportManager.getInstance().getFork().runLater(false, () -> {
+                SupportManager.getInstance().getFork().runNow(false, closeRegionKey, () -> {
                     this.items_abyss_opened = false;
 
                     this.inventories.forEach(inv -> {
@@ -282,19 +338,8 @@ public class WorldCleanerModule extends AbstractModule implements Listener, Comm
                     if (this.items_abyss_alerts) {
                         this.sendAlert(this.getLanguage().getComponent("items.abyss.close", true));
                     }
-                }, this.items_abyss_close, TimeUnit.SECONDS);
-            }
-            this.second = this.interval + 1;
-        } else if (this.alerts_enabled && this.messages.containsKey(this.second)) {
-            WorldsMonitor worldsMonitor = SupportManager.getInstance().getWorldsMonitor();
-            this.sendAlert(
-                    Language.createComponent(this.messages.get(this.second), true,
-                            Placeholder.unparsed("remaining", Integer.toString(this.second)),
-                            Placeholder.unparsed("items", Long.toString(worldsMonitor.getItems())),
-                            Placeholder.unparsed("creatures", Long.toString(worldsMonitor.getCreatures())),
-                            Placeholder.unparsed("projectiles", Long.toString(worldsMonitor.getProjectiles()))
-                    )
-            );
+                });
+            }, closeDelay, TimeUnit.SECONDS);
         }
     }
 

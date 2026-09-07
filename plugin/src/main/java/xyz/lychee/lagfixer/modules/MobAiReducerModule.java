@@ -85,7 +85,7 @@ public class MobAiReducerModule extends AbstractModule implements Listener {
         ) return;
 
         if (this.async) {
-            SupportManager.getInstance().getFork().runNow(true, e.getLocation(), () -> this.mobAiReducer.optimize(e.getEntity(), false));
+            SupportManager.getInstance().getFork().runNow(false, e.getLocation(), () -> this.mobAiReducer.optimize(e.getEntity(), false));
         } else {
             this.mobAiReducer.optimize(e.getEntity(), false);
         }
@@ -138,7 +138,7 @@ public class MobAiReducerModule extends AbstractModule implements Listener {
             });
         }
 
-        this.task = SupportManager.getInstance().getFork().runTimer(true, () -> this.mobAiReducer.purge(), 60, this.purge_interval, TimeUnit.SECONDS);
+        this.task = SupportManager.getInstance().getFork().runTimer(false, () -> this.mobAiReducer.purge(), 60, this.purge_interval, TimeUnit.SECONDS);
     }
 
     @Override

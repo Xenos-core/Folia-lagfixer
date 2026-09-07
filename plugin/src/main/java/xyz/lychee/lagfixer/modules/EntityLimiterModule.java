@@ -119,45 +119,51 @@ public class EntityLimiterModule extends AbstractModule implements Listener {
                     Chunk[] chunks = w.getLoadedChunks();
 
                     for (Chunk chunk : chunks) {
-                        Entity[] entities = chunk.getEntities();
-                        if (entities.length == 0) continue;
+                        // Representative chunk-center location used only to pin the region task to the
+                        // chunk's owning region thread. Entity mutation must NOT happen on the global thread.
+                        final Location chunkCenter = new Location(w, (chunk.getX() << 4) + 8, 64, (chunk.getZ() << 4) + 8);
 
-                        int creatures = 0, items = 0, vehicles = 0, projectiles = 0;
+                        SupportManager.getInstance().getFork().runNow(false, chunkCenter, () -> {
+                            Entity[] entities = chunk.getEntities();
+                            if (entities.length == 0) return;
 
-                        for (Entity entity : entities) {
-                            if (this.whitelist.contains(entity.getType())
-                                    || (!this.overflow_named && entity.getCustomName() != null)
-                                    || (!this.ignore_models && model != null && model.hasModel(entity))) {
-                                continue;
+                            int creatures = 0, items = 0, vehicles = 0, projectiles = 0;
+
+                            for (Entity entity : entities) {
+                                if (this.whitelist.contains(entity.getType())
+                                        || (!this.overflow_named && entity.getCustomName() != null)
+                                        || (!this.ignore_models && model != null && model.hasModel(entity))) {
+                                    continue;
+                                }
+
+                                boolean removed = false;
+
+                                switch (entity) {
+                                    case Mob ignored -> {
+                                        if (creatures < limit_creatures) creatures++;
+                                        else if (this.overflow_creatures) removed = true;
+                                    }
+                                    case Item ignored -> {
+                                        if (items < limit_items) items++;
+                                        else if (this.overflow_items) removed = true;
+                                    }
+                                    case Vehicle ignored -> {
+                                        if (vehicles < limit_vehicles) vehicles++;
+                                        else if (this.overflow_vehicles) removed = true;
+                                    }
+                                    case Projectile ignored -> {
+                                        if (projectiles < limit_projectiles) projectiles++;
+                                        else if (this.overflow_projectiles) removed = true;
+                                    }
+                                    default -> {
+                                    }
+                                }
+
+                                if (removed) {
+                                    entity.remove();
+                                }
                             }
-
-                            boolean removed = false;
-
-                            switch (entity) {
-                                case Mob ignored -> {
-                                    if (creatures < limit_creatures) creatures++;
-                                    else if (this.overflow_creatures) removed = true;
-                                }
-                                case Item ignored -> {
-                                    if (items < limit_items) items++;
-                                    else if (this.overflow_items) removed = true;
-                                }
-                                case Vehicle ignored -> {
-                                    if (vehicles < limit_vehicles) vehicles++;
-                                    else if (this.overflow_vehicles) removed = true;
-                                }
-                                case Projectile ignored -> {
-                                    if (projectiles < limit_projectiles) projectiles++;
-                                    else if (this.overflow_projectiles) removed = true;
-                                }
-                                default -> {
-                                }
-                            }
-
-                            if (removed) {
-                                entity.remove();
-                            }
-                        }
+                        });
                     }
                 });
             }, this.overflow_interval, this.overflow_interval, TimeUnit.SECONDS);

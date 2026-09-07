@@ -123,7 +123,7 @@ public class RedstoneLimiterModule extends AbstractModule implements Listener, R
     @Override
     public void load() {
         Bukkit.getPluginManager().registerEvents(this, this.getPlugin());
-        this.task = SupportManager.getInstance().getFork().runTimer(true, this, 1L, 2L, TimeUnit.SECONDS);
+        this.task = SupportManager.getInstance().getFork().runTimer(false, this, 1L, 2L, TimeUnit.SECONDS);
     }
 
     @Override
@@ -156,7 +156,7 @@ public class RedstoneLimiterModule extends AbstractModule implements Listener, R
             this.chunk = chunk;
         }
 
-        public void addTick(Block block, int size) {
+        public synchronized void addTick(Block block, int size) {
             this.blocks.add(block);
             this.ticks += size;
         }
@@ -174,7 +174,7 @@ public class RedstoneLimiterModule extends AbstractModule implements Listener, R
             return new Location(this.chunk.getWorld(), x / size, y / size, z / size);
         }
 
-        public void complete(int limit, boolean breakBlocks) {
+        public synchronized void complete(int limit, boolean breakBlocks) {
             if (this.ticks > limit) {
                 Set<Block> blockSet = this.blocks.stream().filter(Objects::nonNull).collect(Collectors.toSet());
                 this.blocks.clear();

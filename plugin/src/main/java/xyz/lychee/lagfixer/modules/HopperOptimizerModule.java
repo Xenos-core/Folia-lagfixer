@@ -3,6 +3,7 @@ package xyz.lychee.lagfixer.modules;
 import lombok.Getter;
 import org.bukkit.Bukkit;
 import org.bukkit.Chunk;
+import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.block.Block;
@@ -32,7 +33,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.LongAdder;
 
 public class HopperOptimizerModule extends AbstractModule implements Listener {
@@ -41,6 +41,7 @@ public class HopperOptimizerModule extends AbstractModule implements Listener {
     private final Map<Hopper, Long> hopperLastActivity = new ConcurrentHashMap<>();
     private final Map<Hopper, Long> hopperLastTransfer = new ConcurrentHashMap<>();
     private final Map<Hopper, Integer> hopperTransferCount = new ConcurrentHashMap<>();
+    private final Map<Hopper, Location> hopperLocations = new ConcurrentHashMap<>();
     private HopperOptimizerModule.NMS hopperOptimizer;
     private boolean smartThrottling;
     private boolean chunkLimitEnabled;
@@ -68,10 +69,12 @@ public class HopperOptimizerModule extends AbstractModule implements Listener {
     private void startOptimizationTasks() {
         AbstractFork fork = SupportManager.getInstance().getFork();
 
-        optimizationTask = fork.runTimer(true, this::optimizeHoppers, 50L, checkInterval, TimeUnit.MILLISECONDS);
+        // Global thread for outer iteration; per-hopper work dispatched to owning region thread.
+        optimizationTask = fork.runTimer(false, this::optimizeHoppers, 50L, checkInterval, TimeUnit.MILLISECONDS);
 
-        cleanupTask = fork.runTimer(true, this::cleanupInactiveHoppers, 100L, 200L, TimeUnit.MILLISECONDS);
+        cleanupTask = fork.runTimer(false, this::cleanupInactiveHoppers, 100L, 200L, TimeUnit.MILLISECONDS);
 
+        // resetTransferCounters only clears a ConcurrentHashMap — already async-safe, stays async.
         resetTask = fork.runTimer(true, this::resetTransferCounters, 1L, 1L, TimeUnit.SECONDS);
     }
 
@@ -179,6 +182,8 @@ public class HopperOptimizerModule extends AbstractModule implements Listener {
 
         trackedHoppers.add(hopper);
         hopperLastActivity.put(hopper, System.currentTimeMillis());
+        // Capture location on the region thread (called from event handlers)
+        hopperLocations.put(hopper, hopper.getLocation());
 
         if (chunkLimitEnabled) {
             String chunkKey = getChunkKey(hopper);
@@ -191,6 +196,7 @@ public class HopperOptimizerModule extends AbstractModule implements Listener {
         hopperLastActivity.remove(hopper);
         hopperLastTransfer.remove(hopper);
         hopperTransferCount.remove(hopper);
+        hopperLocations.remove(hopper);
 
         if (chunkLimitEnabled) {
             String chunkKey = getChunkKey(hopper);
@@ -205,10 +211,12 @@ public class HopperOptimizerModule extends AbstractModule implements Listener {
     }
 
     private void optimizeHoppers() {
-        Set<Hopper> hoppersToProcess = new HashSet<>(trackedHoppers);
-
-        for (Hopper hopper : hoppersToProcess) {
-            optimizeHopper(hopper);
+        // Iterate on the global thread (trackedHoppers is a concurrent set).
+        // Dispatch per-hopper block/container access to the owning region thread.
+        for (Hopper hopper : trackedHoppers) {
+            Location loc = hopperLocations.get(hopper);
+            if (loc == null) continue;
+            SupportManager.getInstance().getFork().runNow(false, loc, () -> optimizeHopper(hopper));
         }
     }
 
@@ -251,40 +259,49 @@ public class HopperOptimizerModule extends AbstractModule implements Listener {
 
     private void cleanupInactiveHoppers() {
         long currentTime = System.currentTimeMillis();
-        AtomicInteger removedCount = new AtomicInteger(0);
 
-        trackedHoppers.removeIf(hopper -> {
-            if (hopper == null) {
-                removedCount.incrementAndGet();
-                return true;
-            }
+        // Per-hopper checks must run on the owning region thread.
+        for (Hopper hopper : trackedHoppers) {
+            Location loc = hopperLocations.get(hopper);
+            if (loc == null) continue;
+            SupportManager.getInstance().getFork().runNow(false, loc, () -> {
+                if (hopper == null || !hopper.isPlaced() || !hopper.getChunk().isLoaded()) {
+                    removeHopper(hopper);
+                    return;
+                }
 
-            if (!hopper.isPlaced() || !hopper.getChunk().isLoaded()) {
-                removedCount.incrementAndGet();
-                return true;
-            }
-
-            Long lastActivity = hopperLastActivity.get(hopper);
-            if (lastActivity != null && currentTime - lastActivity > 300000) {
-                removeHopper(hopper);
-                removedCount.incrementAndGet();
-                return true;
-            }
-            return false;
-        });
+                Long lastActivity = hopperLastActivity.get(hopper);
+                if (lastActivity != null && currentTime - lastActivity > 300000) {
+                    removeHopper(hopper);
+                }
+            });
+        }
 
         if (chunkLimitEnabled) {
-            chunkHopperCount.entrySet().removeIf(entry -> {
-                String[] parts = entry.getKey().split(":");
-                if (parts.length != 3) return true;
-
+            // On the global thread, parse keys and drop malformed / null-world entries.
+            // The actual chunk-isLoaded check runs on the owning region thread.
+            for (String key : chunkHopperCount.keySet()) {
+                String[] parts = key.split(":");
+                if (parts.length != 3) {
+                    chunkHopperCount.remove(key);
+                    continue;
+                }
                 String worldName = parts[0];
                 int chunkX = Integer.parseInt(parts[1]);
                 int chunkZ = Integer.parseInt(parts[2]);
-
                 World world = Bukkit.getWorld(worldName);
-                return world == null || !world.isChunkLoaded(chunkX, chunkZ);
-            });
+                if (world == null) {
+                    chunkHopperCount.remove(key);
+                    continue;
+                }
+                SupportManager.getInstance().getFork().runNow(false,
+                        new Location(world, chunkX << 4, 64, chunkZ << 4),
+                        () -> {
+                            if (!world.isChunkLoaded(chunkX, chunkZ)) {
+                                chunkHopperCount.remove(key);
+                            }
+                        });
+            }
         }
     }
 

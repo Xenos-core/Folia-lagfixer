@@ -79,13 +79,19 @@ public class VehicleMotionReducerModule extends AbstractModule implements Listen
         Bukkit.getPluginManager().registerEvents(this.vehicleMotionReducer, this.getPlugin());
 
         if (this.force_load) {
-            // Needs to be synchronized because /lf reload works in async thread
+            // Needs to be synchronized because /lf reload works in async thread.
+            // On Folia, each entity may live in a DIFFERENT region, so mutating an
+            // entity from the wrong region thread is a hard violation. We therefore
+            // enumerate each world on one of its region threads and re-dispatch the
+            // NMS optimize() call to each vehicle's OWNING region thread (its real
+            // location), never touching an entity from a foreign region.
             this.getAllowedWorlds().forEach(w -> {
-                SupportManager.getInstance().getFork().runNow(false, new Location(w, 0, 100, 0), () -> {
+                SupportManager.getInstance().getFork().runNow(false, w.getSpawnLocation(), () -> {
                     w.getLivingEntities()
                             .stream()
                             .filter(this::isEnabled)
-                            .forEach(ent -> this.vehicleMotionReducer.optimize(ent));
+                            .forEach(ent -> SupportManager.getInstance().getFork()
+                                    .runNow(false, ent.getLocation(), () -> this.vehicleMotionReducer.optimize(ent)));
                 });
             });
         }

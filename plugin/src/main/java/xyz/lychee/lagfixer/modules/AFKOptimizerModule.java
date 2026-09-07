@@ -75,112 +75,104 @@ public class AFKOptimizerModule extends AbstractModule implements Listener, Runn
 
     @Override
     public void run() {
+        // This runs on the global tick thread: never touch entities here. Snapshot the
+        // thread-safe afk_players map and dispatch a region task per player for all reads/mutations.
         for (AfkPlayer afkPlayer : this.afk_players.values()) {
-            Player player = afkPlayer.getPlayer();
-            if (!player.isOnline() || !this.canContinue(player.getWorld())) continue;
+            SupportManager.getInstance().getFork()
+                    .runNow(false, afkPlayer.getLocation(), () -> runOnRegion(afkPlayer));
+        }
+    }
 
-            Location lastLocation = afkPlayer.getLocation();
-            Location currentLocation = player.getLocation();
+    /** Executes on the owning region thread of afkPlayer. All entity reads/mutations happen here. */
+    private void runOnRegion(AfkPlayer afkPlayer) {
+        Player player = afkPlayer.getPlayer();
+        if (!player.isOnline() || !this.canContinue(player.getWorld())) return;
 
-            afkPlayer.setRotationAfk(
-                    currentLocation.getPitch() == lastLocation.getPitch()
-                            && currentLocation.getYaw() == lastLocation.getYaw()
-            );
+        Location lastLocation = afkPlayer.getLocation();
+        Location currentLocation = player.getLocation();
 
-            afkPlayer.setPositionAfk(
-                    lastLocation.getBlockX() == currentLocation.getBlockX()
-                            && lastLocation.getBlockY() == currentLocation.getBlockY()
-                            && lastLocation.getBlockZ() == currentLocation.getBlockZ()
-            );
+        afkPlayer.setRotationAfk(
+                currentLocation.getPitch() == lastLocation.getPitch()
+                        && currentLocation.getYaw() == lastLocation.getYaw()
+        );
 
-            boolean isAfk = switch (this.afk_check_mode) {
-                case 0 -> afkPlayer.isPositionAfk() || afkPlayer.isRotationAfk();
-                case 1 -> afkPlayer.isPositionAfk() && afkPlayer.isRotationAfk();
-                case 2 -> afkPlayer.isPositionAfk();
-                case 3 -> afkPlayer.isRotationAfk();
-                default -> false;
-            };
+        afkPlayer.setPositionAfk(
+                lastLocation.getBlockX() == currentLocation.getBlockX()
+                        && lastLocation.getBlockY() == currentLocation.getBlockY()
+                        && lastLocation.getBlockZ() == currentLocation.getBlockZ()
+        );
 
-            if (isAfk) {
-                afkPlayer.getAfkTime().add(this.afk_check_interval);
+        boolean isAfk = switch (this.afk_check_mode) {
+            case 0 -> afkPlayer.isPositionAfk() || afkPlayer.isRotationAfk();
+            case 1 -> afkPlayer.isPositionAfk() && afkPlayer.isRotationAfk();
+            case 2 -> afkPlayer.isPositionAfk();
+            case 3 -> afkPlayer.isRotationAfk();
+            default -> false;
+        };
 
-                long afkTime = afkPlayer.getAfkTime().longValue();
+        if (isAfk) {
+            afkPlayer.getAfkTime().add(this.afk_check_interval);
 
-                if (this.kick_afk_players_enabled && afkTime > this.kick_afk_time) {
-                    String kickMessage = this.getLanguage().getString("afk_kick", true);
-                    SupportManager.getInstance().getFork()
-                            .runNow(false, currentLocation, () -> {
-                                if (!player.isOnline()) return;
+            long afkTime = afkPlayer.getAfkTime().longValue();
 
-                                player.kickPlayer(kickMessage);
-                            });
-                } else if (this.teleport_afk_players && afkTime > this.teleport_afk_time && this.teleport_location != null) {
-                    if (!Objects.equals(currentLocation.getWorld(), this.teleport_location.getWorld())) {
-                        SupportManager.getInstance().getFork()
-                                .runNow(false, currentLocation, () -> {
-                                    if (!player.isOnline()) return;
+            if (this.kick_afk_players_enabled && afkTime > this.kick_afk_time) {
+                String kickMessage = this.getLanguage().getString("afk_kick", true);
+                if (!player.isOnline()) return;
+                player.kickPlayer(kickMessage);
+            } else if (this.teleport_afk_players && afkTime > this.teleport_afk_time && this.teleport_location != null) {
+                if (!Objects.equals(currentLocation.getWorld(), this.teleport_location.getWorld())) {
+                    if (!player.isOnline()) return;
 
-                                    if (this.teleport_back) {
-                                        afkPlayer.setBackLocation(currentLocation);
-                                    }
-                                    player.teleport(this.teleport_location);
-                                });
+                    if (this.teleport_back) {
+                        afkPlayer.setBackLocation(currentLocation);
                     }
-                } else if (this.hide_entities && afkTime > this.hide_afk_time && afkPlayer.getHiddenEntities().isEmpty()) {
-                    SupportManager.getInstance().getFork()
-                            .runNow(false, currentLocation, () -> {
-                                if (!player.isOnline()) return;
-
-                                if (this.hide_players) {
-                                    for (Player o : Bukkit.getOnlinePlayers()) {
-                                        if (!o.equals(player) && afkPlayer.getHiddenEntities().add(o)) {
-                                            player.hidePlayer(this.getPlugin(), o);
-                                        }
-                                    }
-                                }
-
-                                List<Entity> entitiesToHide = player.getNearbyEntities(this.hide_distance_search, this.hide_distance_search, this.hide_distance_search);
-                                if (entitiesToHide.isEmpty()) return;
-
-                                ISupportNms nms = SupportManager.getInstance().getNms();
-                                entitiesToHide.forEach(entity -> {
-                                    if (entity instanceof Player || !afkPlayer.getHiddenEntities().add(entity)) return;
-
-                                    nms.hideEntity(this.getPlugin(), player, entity);
-                                });
-                            });
+                    player.teleport(this.teleport_location);
                 }
-            } else {
-                afkPlayer.getAfkTime().reset();
-                if (this.teleport_back && afkPlayer.getBackLocation() != null) {
-                    SupportManager.getInstance().getFork()
-                            .runNow(false, currentLocation, () -> {
-                                if (!player.isOnline()) return;
+            } else if (this.hide_entities && afkTime > this.hide_afk_time && afkPlayer.getHiddenEntities().isEmpty()) {
+                if (!player.isOnline()) return;
 
-                                player.teleport(afkPlayer.getBackLocation());
-                                afkPlayer.setBackLocation(null);
-                            });
-                } else if (this.hide_entities && !afkPlayer.getHiddenEntities().isEmpty()) {
-                    SupportManager.getInstance().getFork()
-                            .runNow(false, currentLocation, () -> {
-                                if (!player.isOnline()) return;
+                if (this.hide_players) {
+                    for (Player o : player.getWorld().getPlayers()) {
+                        if (!o.equals(player) && afkPlayer.getHiddenEntities().add(o)) {
+                            player.hidePlayer(this.getPlugin(), o);
+                        }
+                    }
+                }
 
-                                ISupportNms nms = SupportManager.getInstance().getNms();
+                List<Entity> entitiesToHide = player.getNearbyEntities(this.hide_distance_search, this.hide_distance_search, this.hide_distance_search);
+                if (!entitiesToHide.isEmpty()) {
+                    ISupportNms nms = SupportManager.getInstance().getNms();
+                    entitiesToHide.forEach(entity -> {
+                        if (entity instanceof Player || !afkPlayer.getHiddenEntities().add(entity)) return;
 
-                                afkPlayer.getHiddenEntities().forEach(entity -> {
-                                    if (entity instanceof Player targetPlayer) {
-                                        player.showPlayer(this.getPlugin(), targetPlayer);
-                                    } else if (entity.isValid() && !entity.isDead()) {
-                                        nms.showEntity(this.getPlugin(), player, entity);
-                                    }
-                                });
-                                afkPlayer.getHiddenEntities().clear();
-                            });
+                        nms.hideEntity(this.getPlugin(), player, entity);
+                    });
                 }
             }
+        } else {
+            afkPlayer.getAfkTime().reset();
+            if (this.teleport_back && afkPlayer.getBackLocation() != null) {
+                if (!player.isOnline()) return;
 
-            afkPlayer.setLocation(currentLocation);
+                player.teleport(afkPlayer.getBackLocation());
+                afkPlayer.setBackLocation(null);
+            } else if (this.hide_entities && !afkPlayer.getHiddenEntities().isEmpty()) {
+                if (!player.isOnline()) return;
+
+                ISupportNms nms = SupportManager.getInstance().getNms();
+
+                afkPlayer.getHiddenEntities().forEach(entity -> {
+                    if (entity instanceof Player targetPlayer) {
+                        player.showPlayer(this.getPlugin(), targetPlayer);
+                    } else if (entity.isValid() && !entity.isDead()) {
+                        nms.showEntity(this.getPlugin(), player, entity);
+                    }
+                });
+                afkPlayer.getHiddenEntities().clear();
+            }
         }
+
+        afkPlayer.setLocation(currentLocation);
     }
 
     @Override
@@ -191,7 +183,7 @@ public class AFKOptimizerModule extends AbstractModule implements Listener, Runn
             this.afk_players.putIfAbsent(player.getUniqueId(), new AfkPlayer(player));
         }
 
-        this.task = SupportManager.getInstance().getFork().runTimer(true, this, this.afk_check_interval, this.afk_check_interval, TimeUnit.MILLISECONDS);
+        this.task = SupportManager.getInstance().getFork().runTimer(false, this, this.afk_check_interval, this.afk_check_interval, TimeUnit.MILLISECONDS);
     }
 
     @Override
@@ -277,7 +269,7 @@ public class AFKOptimizerModule extends AbstractModule implements Listener, Runn
     public static class AfkPlayer {
         private final Player player;
         private final LongAdder afkTime = new LongAdder();
-        private final Set<Entity> hiddenEntities = new HashSet<>();
+        private final Set<Entity> hiddenEntities = ConcurrentHashMap.newKeySet();
         private volatile Location backLocation;
         private volatile Location location;
         private volatile boolean positionAfk;
