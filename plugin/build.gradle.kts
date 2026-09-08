@@ -19,9 +19,9 @@ repositories {
 }
 
 dependencies {
-    compileOnly(project(":support:common"))
-    compileOnly(project(":support:spigot"))
-    compileOnly(project(":support:paper"))
+    implementation(project(":support:common"))
+    implementation(project(":support:spigot"))
+    implementation(project(":support:paper"))
 
     compileOnly("org.spigotmc:spigot-api:1.13.2-R0.1-SNAPSHOT")
 
