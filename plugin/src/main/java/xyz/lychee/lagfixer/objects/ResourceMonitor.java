@@ -31,7 +31,9 @@ public class ResourceMonitor extends AbstractMonitor {
     }
 
     public double tps() {
-        return SupportManager.getInstance().getNms().getTps();
+        // Routed through the fork's cached value (refreshed on the global region thread)
+        // so the async monitor never calls Bukkit.getServer() off a region thread.
+        return SupportManager.getInstance().getFork().getTps();
     }
 
     public double mspt() {

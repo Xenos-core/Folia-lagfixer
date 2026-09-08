@@ -22,6 +22,7 @@ import java.net.URI;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -150,6 +151,19 @@ public class ErrorsManager extends AbstractManager {
     }
 
     private JsonObject createJson() {
+        // Runs on the error-reporter executor thread on Folia; Bukkit API and monitor
+        // reads must happen on a region/global thread. Hop there and collect the result.
+        // Error reports are rare, so blocking the executor briefly is acceptable.
+        CompletableFuture<JsonObject> future = new CompletableFuture<>();
+        SupportManager.getInstance().getFork().runNow(false, null, () -> future.complete(buildJson()));
+        try {
+            return future.get();
+        } catch (Exception ex) {
+            return new JsonObject();
+        }
+    }
+
+    private JsonObject buildJson() {
         UpdaterManager updater = UpdaterManager.getInstance();
         SupportManager support = SupportManager.getInstance();
         ResourceMonitor resourceMonitor = support.getResourceMonitor();

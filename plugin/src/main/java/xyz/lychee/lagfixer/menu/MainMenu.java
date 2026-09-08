@@ -25,7 +25,8 @@ public class MainMenu extends AbstractMenu {
     private final ItemBuilder i4 = this.skull("eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvYmQ5ZjE4YzlkODVmOTJmNzJmODY0ZDY3YzEzNjdlOWE0NWRjMTBmMzcxNTQ5YzQ2YTRkNGRkOWU0ZjEzZmY0In19fQ==", "&f&lServer fork optimizer:");
 
     public MainMenu(LagFixer plugin, int size, String title) {
-        super(plugin, size, title, 1, true);
+        // Inventory mutation must run on the global region thread on Folia, not the async scheduler.
+        super(plugin, size, title, 1, false);
         this.surroundInventory();
         this.fillButtons();
         this.fillInventory();

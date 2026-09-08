@@ -32,6 +32,8 @@ public abstract class AbstractFork {
 
     public abstract double getMspt();
 
+    public abstract double getTps();
+
     public abstract boolean isSupportMspt();
 
     public abstract PluginCommand registerCommand(Plugin plugin, String name, List<String> aliases, CommandExecutor executor);

@@ -106,11 +106,15 @@ public class LagShieldModule extends AbstractModule implements Runnable, Listene
             }
         }
 
+        // World configuration is owned by each world's region thread on Folia; mutating it
+        // from the global tick thread is not legal. Re-dispatch each world's changes to that
+        // world's owning region thread (pinned at the world spawn), mirroring the AI loop above.
         if (this.dynamic_view_distance) {
             Integer viewDistance = this.getThreshold(this.dynamic_view_distance_tps, tps);
             if (viewDistance != null) {
                 for (World w : this.getAllowedWorlds()) {
-                    nms.setViewDistance(w, viewDistance);
+                    Location spawn = w.getSpawnLocation();
+                    support.getFork().runNow(false, spawn, () -> nms.setViewDistance(w, viewDistance));
                 }
             }
         }
@@ -119,7 +123,8 @@ public class LagShieldModule extends AbstractModule implements Runnable, Listene
             Integer simulationDistance = this.getThreshold(this.dynamic_simulation_distance_tps, tps);
             if (simulationDistance != null) {
                 for (World w : this.getAllowedWorlds()) {
-                    nms.setSimulationDistance(w, simulationDistance);
+                    Location spawn = w.getSpawnLocation();
+                    support.getFork().runNow(false, spawn, () -> nms.setSimulationDistance(w, simulationDistance));
                 }
             }
         }
@@ -128,7 +133,8 @@ public class LagShieldModule extends AbstractModule implements Runnable, Listene
             Integer tickSpeed = this.getThreshold(this.dynamic_tick_speed_tps, tps);
             if (tickSpeed != null) {
                 for (World w : this.getAllowedWorlds()) {
-                    w.setGameRule(GameRule.RANDOM_TICK_SPEED, tickSpeed);
+                    Location spawn = w.getSpawnLocation();
+                    support.getFork().runNow(false, spawn, () -> w.setGameRule(GameRule.RANDOM_TICK_SPEED, tickSpeed));
                 }
             }
         }

@@ -198,12 +198,19 @@ public class MetricsManager
         }
 
         private void startSubmitting() {
+            // The bStats executor is a plain Java thread; on Folia, submitData() touches
+            // Bukkit API which is illegal off a region/global thread. So the scheduler only
+            // acts as a timer that re-dispatches the actual submission onto the global
+            // region thread via the Fork abstraction.
             Runnable submitTask = () -> {
-                if (this.submitTaskConsumer != null) {
-                    this.submitTaskConsumer.accept(this::submitData);
-                } else {
-                    this.submitData();
-                }
+                Runnable work = () -> {
+                    if (this.submitTaskConsumer != null) {
+                        this.submitTaskConsumer.accept(this::submitData);
+                    } else {
+                        this.submitData();
+                    }
+                };
+                SupportManager.getInstance().getFork().runNow(false, null, work);
             };
             long initialDelay = (long) (60000.0 * (3.0 + Math.random() * 3.0));
             long secondDelay = (long) (60000.0 * (Math.random() * 30.0));

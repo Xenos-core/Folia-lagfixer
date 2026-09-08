@@ -33,7 +33,8 @@ public class HardwareMenu extends AbstractMenu {
     private long prevBytesRecv = 0;
 
     public HardwareMenu(LagFixer plugin, int size, String title) {
-        super(plugin, size, title, 3, true);
+        // Inventory mutation must run on the global region thread on Folia, not the async scheduler.
+        super(plugin, size, title, 3, false);
         this.si = new SystemInfo();
         this.hal = this.si.getHardware();
 

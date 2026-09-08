@@ -18,14 +18,17 @@ import java.util.concurrent.TimeUnit;
 
 public class PaperSupport extends AbstractFork {
     private volatile double cachedMspt = 0.0;
+    private volatile double cachedTps = 20.0;
 
     public PaperSupport(Plugin plugin) {
         super(plugin);
-        // Bukkit.getAverageTickTime() must be called from a region/global thread,
-        // never from Folia's async scheduler. Refresh it periodically on the
-        // global region thread and cache the last value for synchronous readers.
+        // Bukkit.getAverageTickTime() (and the NMS getTps() path via Bukkit.getServer())
+        // must be called from a region/global thread, never from Folia's async scheduler.
+        // Refresh both periodically on the global region thread and cache the last values
+        // for synchronous readers (e.g. the async ResourceMonitor).
         Bukkit.getGlobalRegionScheduler().runAtFixedRate(getPlugin(), task -> {
             cachedMspt = Bukkit.getAverageTickTime();
+            cachedTps = Bukkit.getTPS()[0];
         }, 1L, 1L);
     }
 
@@ -49,6 +52,11 @@ public class PaperSupport extends AbstractFork {
     @Override
     public double getMspt() {
         return cachedMspt;
+    }
+
+    @Override
+    public double getTps() {
+        return cachedTps;
     }
 
     @Override

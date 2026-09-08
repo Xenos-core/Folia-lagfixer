@@ -37,6 +37,13 @@ public class SpigotSupport extends AbstractFork {
     }
 
     @Override
+    public double getTps() {
+        // Spigot fallback: Bukkit.getTps() exists but the monitor runs on an async
+        // thread; returning a neutral default avoids touching it off the main thread.
+        return 20.0;
+    }
+
+    @Override
     public boolean isSupportMspt() {
         return false;
     }

@@ -74,8 +74,11 @@ public class HopperOptimizerModule extends AbstractModule implements Listener {
 
         cleanupTask = fork.runTimer(false, this::cleanupInactiveHoppers, 100L, 200L, TimeUnit.MILLISECONDS);
 
-        // resetTransferCounters only clears a ConcurrentHashMap — already async-safe, stays async.
-        resetTask = fork.runTimer(true, this::resetTransferCounters, 1L, 1L, TimeUnit.SECONDS);
+        // Reset on the global tick thread alongside the other hopper timers. Although
+        // clearing a ConcurrentHashMap is individually async-safe, the reset races with
+        // trackHopperActivity (called from the region-thread InventoryMoveItemEvent),
+        // so keeping it on the global thread matches the other two timers.
+        resetTask = fork.runTimer(false, this::resetTransferCounters, 1L, 1L, TimeUnit.SECONDS);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST)
