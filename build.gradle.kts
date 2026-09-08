@@ -17,23 +17,8 @@ extra["lagfixer_build"] = "151"
 dependencies {
     implementation(project(":plugin"))
 
-    implementation(project(":nms:v1_16_R3"))
-    implementation(project(":nms:v1_17_R1", io.papermc.paperweight.util.constants.REOBF_CONFIG))
-    implementation(project(":nms:v1_18_R2", io.papermc.paperweight.util.constants.REOBF_CONFIG))
-    implementation(project(":nms:v1_19_R3", io.papermc.paperweight.util.constants.REOBF_CONFIG))
-    implementation(project(":nms:v1_20_R1", io.papermc.paperweight.util.constants.REOBF_CONFIG))
-    implementation(project(":nms:v1_20_R2", io.papermc.paperweight.util.constants.REOBF_CONFIG))
-    implementation(project(":nms:v1_20_R3", io.papermc.paperweight.util.constants.REOBF_CONFIG))
-    implementation(project(":nms:v1_20_R4", io.papermc.paperweight.util.constants.REOBF_CONFIG))
-    implementation(project(":nms:v1_21_R1", io.papermc.paperweight.util.constants.REOBF_CONFIG))
-    implementation(project(":nms:v1_21_R2", io.papermc.paperweight.util.constants.REOBF_CONFIG))
-    implementation(project(":nms:v1_21_R3", io.papermc.paperweight.util.constants.REOBF_CONFIG))
-    implementation(project(":nms:v1_21_R4", io.papermc.paperweight.util.constants.REOBF_CONFIG))
-    implementation(project(":nms:v1_21_R5", io.papermc.paperweight.util.constants.REOBF_CONFIG))
-    implementation(project(":nms:v1_21_R6", io.papermc.paperweight.util.constants.REOBF_CONFIG))
     implementation(project(":nms:v1_21_R7", io.papermc.paperweight.util.constants.REOBF_CONFIG))
     implementation(project(":nms:v26_1", "default"))
-    implementation(project(":nms:v26_2", "default"))
 
     implementation(project(":support:common"))
     implementation(project(":support:spigot"))

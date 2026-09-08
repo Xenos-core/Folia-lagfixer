@@ -15,13 +15,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up JDK 17
-        id: java17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
-
       - name: Set up JDK 21
         id: java21
         uses: actions/setup-java@v4
@@ -29,15 +22,22 @@ jobs:
           distribution: temurin
           java-version: 21
 
+      - name: Set up JDK 25
+        id: java25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 25
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
       - name: Build with Gradle
         run: ./gradlew shadowJar
         env:
-          JAVA_HOME: ${{ steps.java21.outputs.path }}
-          JAVA_HOME_17: ${{ steps.java17.outputs.path }}
+          JAVA_HOME: ${{ steps.java25.outputs.path }}
           JAVA_HOME_21: ${{ steps.java21.outputs.path }}
+          JAVA_HOME_25: ${{ steps.java25.outputs.path }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
