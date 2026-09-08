@@ -156,8 +156,13 @@ public class ConfigMenu extends AbstractMenu {
                 String path = this.module.getName() + ".enabled";
 
                 if (newState) {
+                    boolean success = this.module.loadAllConfig();
+                    if (!success) {
+                        MessageUtils.sendMessage(true, human, "&cModule " + this.module.getName() + " is not supported on this server version!");
+                        this.updateAll();
+                        return;
+                    }
                     this.module.load();
-                    this.module.loadAllConfig();
                     MessageUtils.sendMessage(true, human, "Enabled module &e" + this.module.getName());
                 } else {
                     this.module.disable();

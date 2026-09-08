@@ -5,6 +5,8 @@ import xyz.lychee.lagfixer.LagFixer;
 import xyz.lychee.lagfixer.managers.CommandManager;
 import xyz.lychee.lagfixer.managers.ConfigManager;
 import xyz.lychee.lagfixer.managers.ModuleManager;
+import xyz.lychee.lagfixer.managers.SupportManager;
+import xyz.lychee.lagfixer.objects.AbstractFork;
 import xyz.lychee.lagfixer.utils.MessageUtils;
 import xyz.lychee.lagfixer.utils.TimingUtil;
 
@@ -43,29 +45,40 @@ public class ReloadCommand extends CommandManager.Subcommand {
                 ex.printStackTrace();
             }
 
+            // Config/file IO above this point is async-safe. The per-module
+            // disable/load/registerEvents calls must run on a region/global thread on
+            // Folia, so we dispatch the whole block via the Fork abstraction. Order is
+            // also corrected: loadAllConfig() (which instantiates NMS) before load().
+            AbstractFork fork = SupportManager.getInstance().getFork();
             ModuleManager.getInstance().getModules().forEach((clazz, m) -> {
                 boolean enabled = m.getConfig().getBoolean(m.getName() + ".enabled");
 
-                try {
-                    if (m.isLoaded()) {
-                        m.disable();
-                        m.setLoaded(false);
-                    }
+                fork.runNow(false, null, () -> {
+                    try {
+                        if (m.isLoaded()) {
+                            m.disable();
+                            m.setLoaded(false);
+                        }
 
-                    if (enabled) {
-                        m.load();
-                        m.setLoaded(true);
-                        m.loadAllConfig();
-                        plugin.getLogger().info("&rConfiguration for &e" + m.getName() + " &rsuccessfully reloaded!");
-                    } else if (m.isLoaded()) {
-                        plugin.getLogger().info("&rSuccessfully disabled module &e" + m.getName() + "&r!");
-                    }
+                        if (enabled) {
+                            boolean success = m.loadAllConfig();
+                            if (success) {
+                                m.load();
+                                m.setLoaded(true);
+                                plugin.getLogger().info("&rConfiguration for &e" + m.getName() + " &rsuccessfully reloaded!");
+                            } else {
+                                plugin.getLogger().info("&rSkipping unsupported module &e" + m.getName() + "&r!");
+                            }
+                        } else if (m.isLoaded()) {
+                            plugin.getLogger().info("&rSuccessfully disabled module &e" + m.getName() + "&r!");
+                        }
 
-                    m.getMenu().updateAll();
-                } catch (Exception ex) {
-                    plugin.printError(ex);
-                    plugin.getLogger().info("&rError reloading configuration for &c" + m.getName() + "&r!");
-                }
+                        m.getMenu().updateAll();
+                    } catch (Exception ex) {
+                        plugin.printError(ex);
+                        plugin.getLogger().info("&rError reloading configuration for &c" + m.getName() + "&r!");
+                    }
+                });
             });
 
             MessageUtils.sendMessage(true, sender, """

@@ -26,12 +26,13 @@ import xyz.lychee.lagfixer.objects.AbstractFork;
 import xyz.lychee.lagfixer.objects.AbstractModule;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 @Getter
 public class TrashDisposalModule extends AbstractModule implements Runnable, CommandExecutor, Listener {
-    private final Map<UUID, Inventory> playerTrashInventories = new HashMap<>();
-    private Inventory globalTrashInventory = null;
+    private final Map<UUID, Inventory> playerTrashInventories = new ConcurrentHashMap<>();
+    private volatile Inventory globalTrashInventory = null;
     private BukkitTask task;
 
     private boolean global;
@@ -86,7 +87,9 @@ public class TrashDisposalModule extends AbstractModule implements Runnable, Com
         fork.registerCommand(this.getPlugin(), "trash", this.commandAliases, this);
 
         if (this.cleanupEnabled) {
-            this.task = fork.runTimer(true, this, this.cleanupInterval, this.cleanupInterval, TimeUnit.SECONDS);
+            // Global region thread: Inventory mutation is not allowed on Folia's async
+            // scheduler, so this timer runs on the global tick thread (async = false).
+            this.task = fork.runTimer(false, this, this.cleanupInterval, this.cleanupInterval, TimeUnit.SECONDS);
         }
     }
 

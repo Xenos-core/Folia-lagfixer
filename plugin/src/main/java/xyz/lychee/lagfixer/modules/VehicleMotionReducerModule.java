@@ -75,6 +75,10 @@ public class VehicleMotionReducerModule extends AbstractModule implements Listen
 
     @Override
     public void load() {
+        if (this.vehicleMotionReducer == null) {
+            throw new IllegalStateException("VehicleMotionReducer NMS not available for this server version");
+        }
+
         Bukkit.getPluginManager().registerEvents(this, this.getPlugin());
         Bukkit.getPluginManager().registerEvents(this.vehicleMotionReducer, this.getPlugin());
 

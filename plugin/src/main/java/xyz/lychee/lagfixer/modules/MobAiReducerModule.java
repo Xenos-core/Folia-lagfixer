@@ -118,6 +118,10 @@ public class MobAiReducerModule extends AbstractModule implements Listener {
 
     @Override
     public void load() {
+        if (this.mobAiReducer == null) {
+            throw new IllegalStateException("MobAiReducer NMS not available for this server version");
+        }
+
         Logger logger = (Logger) LogManager.getRootLogger();
         if (!this.containsFilter(logger)) {
             logger.addFilter(this.filter);
