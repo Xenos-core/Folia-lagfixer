@@ -1,5 +1,6 @@
 plugins {
     id("java")
+    id("com.gradleup.shadow") version "9.6.1"
 }
 
 group = "xyz.lychee.lagfixer"
@@ -53,5 +54,14 @@ tasks {
             expand(project.properties)
         }
         outputs.upToDateWhen { false }
+    }
+
+    shadowJar {
+        archiveBaseName.set("LagFixer")
+        archiveVersion.set("")
+        archiveClassifier.set("")
+        archiveFileName.set("LagFixer.jar")
+
+        relocate("net.kyori", "xyz.lychee.lagfixer.libs.kyori")
     }
 }

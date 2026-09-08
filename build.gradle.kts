@@ -1,6 +1,5 @@
 plugins {
     id("java")
-    id("com.gradleup.shadow") version "9.6.1"
     id("io.papermc.paperweight.userdev") version "2.0.0-beta.21" apply false
 }
 
@@ -15,8 +14,6 @@ extra["lagfixer_version"] = version
 extra["lagfixer_build"] = "151"
 
 dependencies {
-    implementation(project(":plugin"))
-
     implementation(project(":nms:v1_21_R7", io.papermc.paperweight.util.constants.REOBF_CONFIG))
     implementation(project(":nms:v26_1", "default"))
 
@@ -27,14 +24,7 @@ dependencies {
 
 tasks {
     build {
-        dependsOn(shadowJar)
-    }
-
-    shadowJar {
-        archiveBaseName.set("LagFixer")
-        archiveClassifier.set("")
-
-        relocate("net.kyori", "xyz.lychee.lagfixer.libs.kyori")
+        dependsOn(project(":plugin").tasks.named("shadowJar"))
     }
 }
 
